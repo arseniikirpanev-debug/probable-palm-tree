@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Genshin 2D Lite</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: monospace; user-select: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #ui { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 15px; background: rgba(0,0,0,0.5); padding: 10px 20px; border-radius: 10px; border: 1px solid #d3bc8e; color: #fff; pointer-events: none; }
+        .cd { font-size: 12px; color: #aaa; text-align: center; }
+        .ready { color: #f4d068; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <canvas id="g"></canvas>
+    <div id="ui">
+        <div class="cd">L-Click<br><span id="cda" class="ready">SWORD</span></div>
+        <div class="cd">E Key<br><span id="cde" class="ready">BURST</span></div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('g'), ctx = canvas.getContext('2d');
+        const cdaUI = document.getElementById('cda'), cdeUI = document.getElementById('cde');
+        
+        let w = canvas.width = window.innerWidth, h = canvas.height = window.innerHeight;
+        window.onresize = () => { w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; };
+
+        const k = {}, m = { x: 0, y: 0, d: 0 };
+        const env = [], enemies = [], dmgs = [], particles = [];
+
+        // Player Setup (Genshin Anemo Traveler Theme)
+        const p = { x: w/2, y: h/2, r: 16, s: 4, hp: 100, maxHp: 100, eCd: 0, aCd: 0 };
+
+        // Generate Trees and Rocks
+        for (let i = 0; i < 15; i++) env.push({ x: Math.random() * w, y: Math.random() * h, t: Math.random() > 0.4 ? 't' : 'r', r: 15 + Math.random() * 15 });
+
+        // Event Listeners
+        window.onkeydown = e => k[e.key.toLowerCase()] = 1;
+        window.onkeyup = e => k[e.key.toLowerCase()] = 0;
+        window.onmousemove = e => { m.x = e.clientX; m.y = e.clientY; };
+        window.onmousedown = () => m.d = 1;
+
+        function spawnEnemy() {
+            if (enemies.length < 5) enemies.push({ x: Math.random() * w, y: Math.random() * h, r: 12, hp: 30, maxHp: 30, s: 1.5, c: '#e65c00' });
+        }
+        setInterval(spawnEnemy, 2000);
+
+        function dmg(x, y, v, c = '#fff') { dmgs.push({ x, y, v, c, a: 1, vy: -1 }); }
+        
+        function part(x, y, c, n=8) {
+            for(let i=0; i<n; i++) {
+                let ang = Math.random()*Math.PI*2, spd = 1 + Math.random()*3;
+                particles.push({ x, y, vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd, c, a: 1 });
+            }
+        }
+
+        // Main Loop
+        function loop() {
+            // Logic
+            let dx = (k.a || k.arrowleft ? -1 : 0) + (k.d || k.arrowright ? 1 : 0);
+            let dy = (k.w || k.arrowup ? -1 : 0) + (k.s || k.arrowdown ? 1 : 0);
+            if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+            p.x = Math.max(p.r, Math.min(w - p.r, p.x + dx * p.s));
+            p.y = Math.max(p.r, Math.min(h - p.r, p.y + dy * p.s));
+
+            if (p.aCd > 0) p.aCd--; else cdaUI.innerText = "READY";
+            if (p.eCd > 0) p.eCd--; else cdeUI.innerText = "READY";
+
+            // Basic Sword Slash (Left Click)
+            if (m.d && p.aCd <= 0) {
+                p.aCd = 15; cdaUI.innerText = "0.2s";
+                let ang = Math.atan2(m.y - p.y, m.x - p.x);
+                let sx = p.x + Math.cos(ang) * 30, sy = p.y + Math.sin(ang) * 30;
+                part(sx, sy, '#fff', 4);
+                enemies.forEach(e => {
+                    if (Math.hypot(e.x - sx, e.y - sy) < 40) {
+                        e.hp -= 10; dmg(e.x, e.y - 15, 10, '#f35b5b');
+                        e.x += Math.cos(ang) * 15; e.y += Math.sin(ang) * 15;
+                    }
+                });
+            }
+            m.d = 0;
+
+            // Elemental Burst: Anemo Vortex (E Key)
+            if (k.e && p.eCd <= 0) {
+                p.eCd = 180; cdeUI.innerText = "3.0s";
+                part(p.x, p.y, '#00ffcc', 25);
+                enemies.forEach(e => {
+                    let d = Math.hypot(e.x - p.x, e.y - p.y);
+                    if (d < 120) {
+                        e.hp -= 18; dmg(e.x, e.y - 15, 18, '#00ffcc');
+                        let ang = Math.atan2(e.y - p.y, e.x - p.x);
+                        e.x += Math.cos(ang) * 40; e.y += Math.sin(ang) * 40;
+                    }
+                });
+            }
+
+            // Enemies Logic
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                let e = enemies[i];
+                let ang = Math.atan2(p.y - e.y, p.x - e.x);
+                e.x += Math.cos(ang) * e.s; e.y += Math.sin(ang) * e.s;
+
+                if (Math.hypot(p.x - e.x, p.y - e.y) < p.r + e.r) {
+                    p.hp = Math.max(0, p.hp - 0.2);
+                    if(Math.random() < 0.05) dmg(p.x, p.y - 15, 1, '#ff3333');
+                }
+                if (e.hp <= 0) { part(e.x, e.y, e.c, 12); enemies.splice(i, 1); }
+            }
+
+            // Render
+            ctx.fillStyle = '#4a7c59'; ctx.fillRect(0, 0, w, h); // Grass
+
+            // Draw Env Elements
+            env.forEach(o => {
+                ctx.fillStyle = o.t === 't' ? '#2d5a27' : '#7f8c8d';
+                ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
+                if (o.t === 't') { ctx.fillStyle = '#1e3f1a'; ctx.beginPath(); ctx.arc(o.x-3, o.y-3, o.r*0.6, 0, Math.PI*2); ctx.fill(); }
+            });
+
+            // Draw Particles
+            for(let i = particles.length-1; i >= 0; i--) {
+                let pt = particles[i]; pt.x += pt.vx; pt.y += pt.vy; pt.a -= 0.04;
+                if(pt.a <= 0) particles.splice(i, 1);
+                else { ctx.globalAlpha = pt.a; ctx.fillStyle = pt.c; ctx.fillRect(pt.x, pt.y, 4, 4); }
+            }
+            ctx.globalAlpha = 1;
+
+            // Draw Enemies (Slimes)
+            enemies.forEach(e => {
+                ctx.fillStyle = e.c; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(e.x - 15, e.y - e.r - 8, 30, 4);
+                ctx.fillStyle = '#ff3333'; ctx.fillRect(e.x - 15, e.y - e.r - 8, (e.hp / e.maxHp) * 30, 4);
+            });
+
+            // Draw Player (Traveler)
+            let angM = Math.atan2(m.y - p.y, m.x - p.x);
+            ctx.fillStyle = '#5d4037'; ctx.beginPath(); ctx.arc(p.x - Math.cos(angM)*6, p.y - Math.sin(angM)*6, 18, 0, Math.PI*2); ctx.fill(); // Scarf/Cape
+            ctx.fillStyle = '#ffe082'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); // Hair/Head
+            ctx.fillStyle = '#00ffcc'; ctx.beginPath(); ctx.arc(p.x + Math.cos(angM)*8, p.y + Math.sin(angM)*8, 5, 0, Math.PI*2); ctx.fill(); // Vision Element
+
+            // Player HP Bar UI (Floating Top)
+            ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(p.x - 20, p.y - 30, 40, 5);
+            ctx.fillStyle = '#66bb6a'; ctx.fillRect(p.x - 20, p.y - 30, (p.hp / p.maxHp) * 40, 5);
+
+            // Floating Text
+            for (let i = dmgs.length - 1; i >= 0; i--) {
+                let d = dmgs[i]; d.y += d.vy; d.a -= 0.02;
+                if (d.a <= 0) dmgs.splice(i, 1);
+                else {
+                    ctx.globalAlpha = d.a; ctx.fillStyle = d.c; ctx.font = "bold 14px monospace";
+                    ctx.fillText(d.v, d.x, d.y);
+                }
+            }
+            ctx.globalAlpha = 1;
+
+            if(p.hp <= 0) {
+                ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(0,0,w,h);
+                ctx.fillStyle = '#fff'; ctx.font = "30px monospace"; ctx.fillText("STATUE OF THE SEVEN AWAITS (DEATH)", w/2-250, h/2);
+                return;
+            }
+
+            requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html>
